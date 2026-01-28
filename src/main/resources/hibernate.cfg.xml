@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE hibernate-configuration PUBLIC
+        "-//Hibernate/Hibernate Configuration DTD 3.0//EN"
+        "http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd">
+
+<hibernate-configuration>
+    <session-factory>
+        <!-- Connexion BDD -->
+        <property name="hibernate.connection.driver_class">com.mysql.cj.jdbc.Driver</property>
+        <property name="hibernate.connection.url">jdbc:mysql://localhost:3306/hebergo?useSSL=false&amp;serverTimezone=Europe/Paris</property>
+        <property name="hibernate.connection.username">root</property>
+        <property name="hibernate.connection.password"></property>
+
+        <!-- Pool de connexions HikariCP -->
+        <property name="hibernate.hikari.minimumIdle">5</property>
+        <property name="hibernate.hikari.maximumPoolSize">20</property>
+        <property name="hibernate.hikari.idleTimeout">30000</property>
+
+        <!-- Dialecte MySQL -->
+        <property name="hibernate.dialect">org.hibernate.dialect.MySQLDialect</property>
+
+        <!-- Options -->
+        <property name="hibernate.show_sql">true</property>
+        <property name="hibernate.format_sql">true</property>
+        <property name="hibernate.hbm2ddl.auto">validate</property>
+
+        <!-- Entités à mapper -->
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Utilisateur"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Hote"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Locataire"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.profil.HoteProfil"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.profil.LocataireProfil"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Logement"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Reservation"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.Avis"/>
+        <mapping class="training.afpa.cda24060.squatrbnb.model.AdresseUtilisateur"/>
+    </session-factory>
+</hibernate-configuration>
