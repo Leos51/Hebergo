@@ -11,12 +11,14 @@ public class TypeLogement {
     private String description;
     private Boolean actif ;
 
-    // Constructeurs
+    // ==========================================
+    // CONSTRUCTEURS
+    // ==========================================
     public TypeLogement() {}
 
-    public TypeLogement(Long id, String nom) {
+    public TypeLogement(Long id, String libelle) {
         this.id = id;
-        this.libelle = nom;
+        this.libelle = libelle;
         this.actif = true;
     }
 
@@ -27,7 +29,9 @@ public class TypeLogement {
         this.actif = true;
     }
 
-    // Getters et Setters
+    // ==========================================
+    // GETTERS & SETTERS
+    // ==========================================
     public Long getId() {
         return id;
     }
@@ -69,6 +73,9 @@ public class TypeLogement {
 
     }
 
+    // ==========================================
+    // MÉTHODES UTILITAIRES
+    // ==========================================
     @Override
     public String toString() {
         return "TypeLogement{id=" + this.id + ", libelle='" + this.libelle + "'}";

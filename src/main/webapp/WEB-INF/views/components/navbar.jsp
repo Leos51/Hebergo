@@ -7,15 +7,15 @@
         <a class="navbar-brand" href="${pageContext.request.contextPath}/">
             <i class="fas fa-home me-2"></i>Squat'R BNB
         </a>
-        
+
         <!-- Toggle mobile -->
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
             <span class="navbar-toggler-icon"></span>
         </button>
-        
+
         <!-- Navigation -->
         <div class="collapse navbar-collapse" id="navbarMain">
-            
+
             <!-- Centre - Recherche rapide (optionnel) -->
 <%--            <div class="mx-auto d-none d-lg-block">--%>
 <%--                <c:if test="${param.showSearch == 'true'}">--%>
@@ -31,10 +31,10 @@
 <%--                    </form>--%>
 <%--                </c:if>--%>
 <%--            </div>--%>
-            
+
             <!-- Droite -->
             <ul class="navbar-nav ms-auto align-items-center">
-                
+
                 <!-- Devenir hôte -->
                 <c:if test="${empty sessionScope.utilisateur || !sessionScope.utilisateur.hasRole('HOTE')}">
                     <li class="nav-item">
@@ -43,7 +43,7 @@
                         </a>
                     </li>
                 </c:if>
-                
+
                 <!-- Non connecté -->
                 <c:if test="${empty sessionScope.utilisateur}">
                     <li class="nav-item">
@@ -57,7 +57,7 @@
                         </a>
                     </li>
                 </c:if>
-                
+
                 <!-- Connecté -->
                 <c:if test="${not empty sessionScope.utilisateur}">
                     <!-- Messages -->
@@ -71,7 +71,7 @@
 <%--                            </c:if>--%>
 <%--                        </a>--%>
 <%--                    </li>--%>
-                    
+
                     <!-- Notifications -->
 <%--                    <li class="nav-item">--%>
 <%--                        <a class="nav-link position-relative" href="${pageContext.request.contextPath}/notifications">--%>
@@ -83,7 +83,7 @@
 <%--                            </c:if>--%>
 <%--                        </a>--%>
 <%--                    </li>--%>
-                    
+
                     <!-- Dropdown utilisateur -->
                     <li class="nav-item dropdown ms-2">
                         <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="userDropdown" data-bs-toggle="dropdown">
@@ -110,7 +110,7 @@
                                 </a></li>
                                 <li><hr class="dropdown-divider"></li>
                             </c:if>
-                            
+
                             <!-- Si Locataire -->
                             <c:if test="${sessionScope.utilisateur.hasRole('LOCATAIRE')}">
                                 <li><a class="dropdown-item" href="${pageContext.request.contextPath}/locataire/dashboard">
@@ -124,7 +124,7 @@
                                 </a></li>
                                 <li><hr class="dropdown-divider"></li>
                             </c:if>
-                            
+
                             <!-- Commun -->
                             <li><a class="dropdown-item" href="${pageContext.request.contextPath}/compte/profil">
                                 <i class="fas fa-user me-2"></i>Mon profil
@@ -144,51 +144,3 @@
     </div>
 </nav>
 
-<%--<nav class="navbar navbar-expand-lg navbar-dark bg-dark">--%>
-<%--    <div class="container-fluid">--%>
-
-<%--        <a class="navbar-brand" href="/home">MonSite</a>--%>
-
-<%--        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">--%>
-<%--            <span class="navbar-toggler-icon"></span>--%>
-<%--        </button>--%>
-
-<%--        <div class="collapse navbar-collapse" id="navbarNav">--%>
-<%--            <ul class="navbar-nav">--%>
-
-<%--                <!-- Accueil -->--%>
-<%--                <li class="nav-item">--%>
-<%--                    <a class="nav-link ${activePage == 'home' ? 'active' : ''}"--%>
-<%--                       href="/home"--%>
-<%--                       aria-current="${activePage == 'home' ? 'page' : ''}">--%>
-<%--                        Accueil--%>
-<%--                    </a>--%>
-<%--                </li>--%>
-
-<%--                <!-- Contact -->--%>
-<%--                <li class="nav-item">--%>
-<%--                    <a class="nav-link ${activePage == 'contact' ? 'active' : ''}"--%>
-<%--                       href="/contact"--%>
-<%--                       aria-current="${activePage == 'contact' ? 'page' : ''}">--%>
-<%--                        Contact--%>
-<%--                    </a>--%>
-<%--                </li>--%>
-<%--                <a href="${pageContext.request.contextPath}/auth/login">Connectez-vous</a>--%>
-<%--                <li class="nav-item">--%>
-<%--                    <a class="nav-link ${activePage == 'Connexion' ? 'active' : ''}"--%>
-<%--                       href="${pageContext.request.contextPath}/auth/login"--%>
-<%--                       aria-current="${activePage == 'login' ? 'page' : ''}">--%>
-<%--                        Connexion--%>
-<%--                    </a>--%>
-<%--                </li>--%>
-<%--                <li class="nav-item">--%>
-<%--                    <a class="nav-link ${activePage == 'Inscription' ? 'active' : ''}"--%>
-<%--                       href="${pageContext.request.contextPath}/auth/register"--%>
-<%--                       aria-current="${activePage == 'register' ? 'page' : ''}">--%>
-<%--                        Inscription--%>
-<%--                    </a>--%>
-<%--                </li>--%>
-<%--            </ul>--%>
-<%--        </div>--%>
-<%--    </div>--%>
-<%--</nav>--%>

@@ -16,12 +16,10 @@ import java.util.*;
  */
 public class LogementDAO {
 
-    // ==========================================
-    // CRÉATION avec PROCÉDURE STOCKÉE
-    // ==========================================
-
     /**
      * Créer un logement via sp_creer_logement
+     * @param logement
+     * @return ID du  Logement
      */
     public Long save(Logement logement) {
         String sql = "{CALL sp_creer_logement(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)}";
@@ -87,12 +85,658 @@ public class LogementDAO {
         return null;
     }
 
+    /**
+     * Créer un logement complet avec adresse et équipements
+     * @param logement
+     * @param hoteId
+     * @return ID du logement
+     * @throws SQLException
+     */
+    public Long createComplete(Logement logement, Long hoteId) throws SQLException {
+        Connection conn = null;
+        try {
+            conn = DataSourceProvider.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1. Créer l'adresse
+            Long adresseId = createAdresse(conn, logement.getAdresse());
+
+            // 2. Créer le logement
+            String sql = """
+                INSERT INTO logement (
+                    hote_id, type_logement_id, titre, description,
+                    adresse_id, nb_chambres, nb_lits, nb_salles_bain, capacite_max,
+                    superficie, prix_nuit, frais_menage, heure_arrivee, heure_depart,
+                    reglement_interieur, delai_annulation, statut, date_creation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            """;
+
+            Long logementId;
+            try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                int i = 1;
+                ps.setLong(i++, hoteId);
+                ps.setObject(i++, logement.getTypeLogementId());
+                ps.setString(i++, logement.getTitre());
+                ps.setString(i++, logement.getDescription());
+                ps.setLong(i++, adresseId);
+                ps.setObject(i++, logement.getNbChambres());
+                ps.setObject(i++, logement.getNbLits());
+                ps.setObject(i++, logement.getNbSallesBain());
+                ps.setObject(i++, logement.getCapaciteMax());
+                ps.setBigDecimal(i++, logement.getSuperficie());
+                ps.setBigDecimal(i++, logement.getPrixNuit());
+                ps.setBigDecimal(i++, logement.getFraisMenage());
+                ps.setString(i++, logement.getHeureArrivee());
+                ps.setString(i++, logement.getHeureDepart());
+                ps.setString(i++, logement.getReglementInterieur());
+                ps.setObject(i++, logement.getDelaiAnnulation());
+                ps.setString(i++, logement.getStatut() != null ? logement.getStatut().name() : StatutLogement.BROUILLON.name());
+
+                ps.executeUpdate();
+
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    if (keys.next()) {
+                        logementId = keys.getLong(1);
+                    } else {
+                        throw new SQLException("Échec de création du logement");
+                    }
+                }
+            }
+
+            // 3. Ajouter les équipements
+            if (logement.getEquipementIds() != null && !logement.getEquipementIds().isEmpty()) {
+                saveEquipements(conn, logementId, logement.getEquipementIds());
+            }
+
+            conn.commit();
+            return logementId;
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            throw e;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * Créer une adresse de logement
+     * @param conn
+     * @param adresse
+     * @return ID de l'adresse
+     * @throws SQLException
+     */
+    private Long createAdresse(Connection conn, AdresseBien adresse) throws SQLException {
+        if (adresse == null) {
+            throw new SQLException("Adresse obligatoire");
+        }
+
+        String sql = """
+            INSERT INTO adresse (
+                adresse, code_postal, ville, region, pays,
+                latitude, longitude, date_creation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setString(1, adresse.getAdresse());
+            ps.setString(2, adresse.getCodePostal());
+            ps.setString(3, adresse.getVille());
+            ps.setString(4, adresse.getRegion());
+            ps.setString(5, adresse.getPays() != null ? adresse.getPays() : "France");
+            ps.setBigDecimal(6, adresse.getLatitude());
+            ps.setBigDecimal(7, adresse.getLongitude());
+
+            ps.executeUpdate();
+
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+                throw new SQLException("Échec de création de l'adresse");
+            }
+        }
+    }
+
+    // ==========================================
+    // MISE À JOUR COMPLÈTE
+    // ==========================================
+
+    /**
+     * Mettre à jour un logement complet (avec vérification du propriétaire)
+     * @param logement
+     * @param hoteId
+     * @return boolean
+     * @throws SQLException
+     */
+    public boolean updateComplete(Logement logement, Long hoteId) throws SQLException {
+        // Vérifier que le logement appartient bien à cet hôte
+        if (!verifyOwnership(logement.getId(), hoteId)) {
+            throw new SQLException("Vous n'êtes pas autorisé à modifier ce logement");
+        }
+
+        Connection conn = null;
+        try {
+            conn = DataSourceProvider.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1. Mettre à jour l'adresse si elle existe
+            if (logement.getAdresse() != null && logement.getAdresse().getId() != null) {
+                updateAdresse(conn, logement.getAdresse());
+            }
+
+            // 2. Mettre à jour le logement
+            String sql = """
+                UPDATE logement SET
+                    type_logement_id = ?, titre = ?, description = ?,
+                    nb_chambres = ?, nb_lits = ?, nb_salles_bain = ?, capacite_max = ?,
+                    superficie = ?, prix_nuit = ?, frais_menage = ?,
+                    heure_arrivee = ?, heure_depart = ?, reglement_interieur = ?,
+                    delai_annulation = ?, date_modification = NOW()
+                WHERE id = ? AND hote_id = ?
+            """;
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                int i = 1;
+                ps.setObject(i++, logement.getTypeLogementId());
+                ps.setString(i++, logement.getTitre());
+                ps.setString(i++, logement.getDescription());
+                ps.setObject(i++, logement.getNbChambres());
+                ps.setObject(i++, logement.getNbLits());
+                ps.setObject(i++, logement.getNbSallesBain());
+                ps.setObject(i++, logement.getCapaciteMax());
+                ps.setBigDecimal(i++, logement.getSuperficie());
+                ps.setBigDecimal(i++, logement.getPrixNuit());
+                ps.setBigDecimal(i++, logement.getFraisMenage());
+                ps.setString(i++, logement.getHeureArrivee());
+                ps.setString(i++, logement.getHeureDepart());
+                ps.setString(i++, logement.getReglementInterieur());
+                ps.setObject(i++, logement.getDelaiAnnulation());
+                ps.setLong(i++, logement.getId());
+                ps.setLong(i++, hoteId);
+
+                int rows = ps.executeUpdate();
+                if (rows == 0) {
+                    throw new SQLException("Logement non trouvé ou non autorisé");
+                }
+            }
+
+            // 3. Mettre à jour les équipements
+            if (logement.getEquipementIds() != null) {
+                deleteEquipements(logement.getId());
+                if (!logement.getEquipementIds().isEmpty()) {
+                    saveEquipements(conn, logement.getId(), logement.getEquipementIds());
+                }
+            }
+
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            throw e;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * Mettre à jour une adresse
+     * @param conn
+     * @param adresse
+     * @throws SQLException
+     */
+    private void updateAdresse(Connection conn, AdresseBien adresse) throws SQLException {
+        String sql = """
+            UPDATE adresse SET
+                adresse = ?, code_postal = ?, ville = ?, region = ?, pays = ?,
+                latitude = ?, longitude = ?, date_modification = NOW()
+            WHERE id = ?
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, adresse.getAdresse());
+            ps.setString(2, adresse.getCodePostal());
+            ps.setString(3, adresse.getVille());
+            ps.setString(4, adresse.getRegion());
+            ps.setString(5, adresse.getPays());
+            ps.setBigDecimal(6, adresse.getLatitude());
+            ps.setBigDecimal(7, adresse.getLongitude());
+            ps.setLong(8, adresse.getId());
+
+            ps.executeUpdate();
+        }
+    }
+
+    // ==========================================
+    // SUPPRESSION SÉCURISÉE
+    // ==========================================
+
+    /**
+     * Supprimer un logement (vérifie qu'il n'y a pas de réservations actives)
+     * @param logementId
+     * @param hoteId
+     * @return
+     * @throws SQLException
+     */
+    public boolean deleteSecure(Long logementId, Long hoteId) throws SQLException {
+        // Vérifier que le logement appartient bien à cet hôte
+        if (!verifyOwnership(logementId, hoteId)) {
+            throw new SQLException("Vous n'êtes pas autorisé à supprimer ce logement");
+        }
+
+        // Vérifier qu'il n'y a pas de réservations actives
+        if (hasActiveReservations(logementId)) {
+            throw new SQLException("Impossible de supprimer : des réservations actives existent");
+        }
+
+        Connection conn = null;
+        try {
+            conn = DataSourceProvider.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1. Supprimer les équipements
+            deleteEquipements(logementId);
+
+            // 2. Supprimer les photos
+            deletePhotos(conn, logementId);
+
+            // 3. Récupérer l'ID de l'adresse
+            Long adresseId = getAdresseId(conn, logementId);
+
+            // 4. Supprimer le logement
+            String sql = "DELETE FROM logement WHERE id = ? AND hote_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, logementId);
+                ps.setLong(2, hoteId);
+                int rows = ps.executeUpdate();
+
+                if (rows == 0) {
+                    throw new SQLException("Logement non trouvé");
+                }
+            }
+
+            // 5. Supprimer l'adresse
+            if (adresseId != null) {
+                deleteAdresse(conn, adresseId);
+            }
+
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            throw e;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * Archiver un logement (soft delete)
+     * @param logementId
+     * @param hoteId
+     * @return boolean
+     * @throws SQLException
+     */
+    public boolean archive(Long logementId, Long hoteId) throws SQLException {
+        if (!verifyOwnership(logementId, hoteId)) {
+            throw new SQLException("Vous n'êtes pas autorisé à archiver ce logement");
+        }
+
+        String sql = "UPDATE logement SET statut = 'ARCHIVE', date_modification = NOW() WHERE id = ? AND hote_id = ?";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, logementId);
+            ps.setLong(2, hoteId);
+
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    // ==========================================
+    // MÉTHODES UTILITAIRES PRIVÉES
+    // ==========================================
+
+    /**
+     * Vérifier que le logement appartient à l'hôte
+     * @param logementId
+     * @param hoteId
+     * @return boolean
+     * @throws SQLException
+     */
+    private boolean verifyOwnership(Long logementId, Long hoteId) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM logement WHERE id = ? AND hote_id = ?";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, logementId);
+            ps.setLong(2, hoteId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    /**
+     * Vérifier s'il y a des réservations actives
+     * @param logementId
+     * @return boolean
+     * @throws SQLException
+     */
+    private boolean hasActiveReservations(Long logementId) throws SQLException {
+        String sql = """
+            SELECT COUNT(*) FROM reservation 
+            WHERE logement_id = ? 
+            AND statut IN ('EN_ATTENTE', 'CONFIRMEE', 'EN_COURS')
+        """;
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, logementId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    /**
+     * Récupérer l'ID de l'adresse d'un logement
+     * @param conn
+     * @param logementId
+     * @return ID adresse
+     * @throws SQLException
+     */
+    private Long getAdresseId(Connection conn, Long logementId) throws SQLException {
+        String sql = "SELECT adresse_id FROM logement WHERE id = ?";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, logementId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getObject("adresse_id", Long.class);
+                }
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Supprimer une adresse
+     * @param conn
+     * @param adresseId
+     * @throws SQLException
+     */
+    private void deleteAdresse(Connection conn, Long adresseId) throws SQLException {
+        String sql = "DELETE FROM adresse WHERE id = ?";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, adresseId);
+            ps.executeUpdate();
+        }
+    }
+
+
+    /**
+     * Supprimer les photos d'un logement
+     * @param conn
+     * @param logementId
+     * @throws SQLException
+     */
+    private void deletePhotos(Connection conn, Long logementId) throws SQLException {
+        String sql = "DELETE FROM photo_logement WHERE logement_id = ?";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, logementId);
+            ps.executeUpdate();
+        }
+    }
+
+
+    /**
+     * Sauvegarder les équipements (version avec connexion existante)
+     * @param conn
+     * @param logementId
+     * @param equipementIds
+     * @throws SQLException
+     */
+    private void saveEquipements(Connection conn, Long logementId, List<Long> equipementIds) throws SQLException {
+        String sql = "INSERT INTO logement_equipement (logement_id, equipement_id) VALUES (?, ?)";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (Long equipementId : equipementIds) {
+                ps.setLong(1, logementId);
+                ps.setLong(2, equipementId);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    /**
+     * Sauvegarder les équipements (version avec connexion existante)
+     * @param logementId
+     * @param equipementIds
+     */
+    private void saveEquipements(Long logementId, List<Long> equipementIds) {
+        String sql = "INSERT INTO logement_equipement (logement_id, equipement_id) VALUES (?, ?)";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            for (Long equipementId : equipementIds) {
+                ps.setLong(1, logementId);
+                ps.setLong(2, equipementId);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Supprimer les équipements (version avec connexion existante)
+     * @param logementId
+     * @throws SQLException
+     */
+    private void deleteEquipements(Long logementId) {
+        String sql = "DELETE FROM logement_equipement WHERE logement_id = ?";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, logementId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ==========================================
+    // GESTION DES PHOTOS
+    // ==========================================
+
+    /**
+     * Ajouter une photo
+     * @param photo
+     * @param hoteId
+     * @return ID photo
+     * @throws SQLException
+     */
+    public Long addPhoto(PhotoLogement photo, Long hoteId) throws SQLException {
+        // Vérifier que le logement appartient à l'hôte
+        if (!verifyOwnership(photo.getLogementId(), hoteId)) {
+            throw new SQLException("Non autorisé");
+        }
+
+        String sql = "INSERT INTO photo_logement (logement_id, url, description, est_principale, ordre, date_ajout) VALUES (?, ?, ?, ?, ?, NOW())";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+            ps.setLong(1, photo.getLogementId());
+            ps.setString(2, photo.getUrl());
+            ps.setString(3, photo.getDescription());
+            ps.setBoolean(4, photo.isEstPrincipale());
+            ps.setInt(5, photo.getOrdre());
+
+            ps.executeUpdate();
+
+            try (ResultSet keys = ps.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+                throw new SQLException("Échec d'ajout de la photo");
+            }
+        }
+    }
+
+    /**
+     * Supprimer une photo
+     * @param photoId
+     * @param hoteId
+     * @return boolean
+     * @throws SQLException
+     */
+    public boolean deletePhoto(Long photoId, Long hoteId) throws SQLException {
+        String sql = """
+            DELETE FROM photo_logement 
+            WHERE id = ? 
+            AND logement_id IN (SELECT id FROM logement WHERE hote_id = ?)
+        """;
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, photoId);
+            ps.setLong(2, hoteId);
+
+            return ps.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * Définir une photo comme principale
+     * @param photoId
+     * @param logementId
+     * @param hoteId
+     * @return boolean
+     * @throws SQLException
+     */
+    public boolean setPrincipalPhoto(Long photoId, Long logementId, Long hoteId) throws SQLException {
+        if (!verifyOwnership(logementId, hoteId)) {
+            throw new SQLException("Non autorisé");
+        }
+
+        Connection conn = null;
+        try {
+            conn = DataSourceProvider.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1. Retirer le statut principal de toutes les photos
+            String sql1 = "UPDATE photo_logement SET est_principale = FALSE WHERE logement_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sql1)) {
+                ps.setLong(1, logementId);
+                ps.executeUpdate();
+            }
+
+            // 2. Définir la nouvelle photo principale
+            String sql2 = "UPDATE photo_logement SET est_principale = TRUE WHERE id = ? AND logement_id = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sql2)) {
+                ps.setLong(1, photoId);
+                ps.setLong(2, logementId);
+                int rows = ps.executeUpdate();
+
+                if (rows == 0) {
+                    throw new SQLException("Photo non trouvée");
+                }
+            }
+
+            conn.commit();
+            return true;
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            throw e;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
     // ==========================================
     // RECHERCHE avec PROCÉDURE STOCKÉE
     // ==========================================
 
     /**
      * Recherche via sp_rechercher_logements
+     * @param ville
+     * @param dateDebut
+     * @param dateFin
+     * @param nbVoyageurs
+     * @param prixMin
+     * @param prixMax
+     * @param typeLogementId
+     * @return Liste de Logements
      */
     public List<Logement> searchWithProcedure(String ville, LocalDate dateDebut, LocalDate dateFin,
                                               Integer nbVoyageurs, BigDecimal prixMin, BigDecimal prixMax,
@@ -129,6 +773,9 @@ public class LogementDAO {
 
     /**
      * Mapping spécifique pour sp_rechercher_logements
+     * @param rs
+     * @return
+     * @throws SQLException
      */
     private Logement mapToLogementFromProcedure(ResultSet rs) throws SQLException {
         Logement logement = new Logement();
@@ -137,7 +784,6 @@ public class LogementDAO {
         logement.setHoteId(rs.getLong("hote_id"));
         logement.setTitre(rs.getString("titre"));
         logement.setDescription(rs.getString("description"));
-//        logement.setVille(rs.getString("ville"));
         logement.setPrixNuit(rs.getBigDecimal("prix_nuit"));
         logement.setCapaciteMax(rs.getInt("capacite_max"));
         logement.setNbChambres(rs.getInt("nb_chambres"));
@@ -201,33 +847,50 @@ public class LogementDAO {
     // ==========================================
     // Afficher tout les logements disponibles
     // ==========================================
-    public List<Logement> findAllDisponibles() {
+    public List<Logement> findAllDisponibles() throws SQLException {
         List<Logement> logements = new ArrayList<>();
-        String sql = "SELECT * FROM v_logements WHERE statut = 'DISPONIBLE'";
+        String sql = "SELECT * FROM v_logements " +
+                "WHERE statut = 'DISPONIBLE'";
+
         try(Connection conn = DataSourceProvider.getConnection();
             PreparedStatement ps = conn.prepareStatement(sql)){
             ResultSet rs = ps.executeQuery();
             while (rs.next()) {
-                logements.add(mapToLogement(rs));
+                Logement logement = mapResultSetToLogement(rs);
+                logements.add(logement);
             }
+
+
         }catch(SQLException e){
             System.err.println("Erreur sp_findAllDispo: " + e.getMessage());
-        };
+        }
+        // Charger les photos pour chaque logement
+        for (Logement logement : logements) {
+            logement.setPhotos(findPhotosByLogementId(logement.getId()));
+        }
+
         return logements;
     }
 
-    // ==========================================
-    // Afficher tout les logements disponibles
-    // ==========================================
+
+    /**
+     * Afficher les logements par ville
+     * @param ville
+     * @return logements
+     */
     public List<Logement> findByVille(String ville) {
         List<Logement> logements = new ArrayList<>();
-        String sql = "SELECT * FROM v_logements WHERE ville = ?";
+
+        String sql = "SELECT * FROM v_logements WHERE ville LIKE ?";
+
         try(Connection conn = DataSourceProvider.getConnection();
             PreparedStatement ps = conn.prepareStatement(sql)){
-            ps.setString(1, ville);
+            ps.setString(1, "%" + ville + "%");
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    logements.add(mapToLogement(rs));
+                    Logement logement = mapResultSetToLogement(rs);
+                    logement.setPhotos(findPhotosByLogementId(logement.getId()));
+                    logements.add(logement);
                 }
             }
         }catch(SQLException e){
@@ -236,12 +899,12 @@ public class LogementDAO {
         return logements;
     }
 
-    // ==========================================
-    // RECHERCHE PAR ID (pas de procédure)
-    // ==========================================
+
 
     /**
      * Trouve un logement par ID (utilise la vue v_logements)
+     * @param id
+     * @return logement
      */
     public Optional<Logement> findById(Long id) {
         String sql = "SELECT * FROM v_logements WHERE id = ?";
@@ -267,12 +930,12 @@ public class LogementDAO {
         return Optional.empty();
     }
 
-    // ==========================================
-    // RECHERCHE PAR HÔTE (utilise la vue)
-    // ==========================================
+
 
     /**
      * Tous les logements d'un hôte
+     * @param hoteId
+     * @return Liste logements d'un hote
      */
     public List<Logement> findByHoteId(Long hoteId) {
         List<Logement> logements = new ArrayList<>();
@@ -295,30 +958,48 @@ public class LogementDAO {
         return logements;
     }
 
+
     /**
      * Logements d'un hôte avec filtres
+     * @param hoteId
+     * @param statut
+     * @param typeId
+     * @param search
+     * @return
      */
-    public List<Logement> findByHoteWithFilters(Long hoteId, String statut, String typeId, String search) {
+    public List<Logement> findByHoteWithFilters(Long hoteId, String statut, String typeId, String search) throws SQLException {
+
+        StringBuilder sql = new StringBuilder("SELECT * FROM v_logements WHERE hote_id = ?");
+
         List<Logement> logements = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT * FROM v_logements WHERE hote_id = ? AND statut != 'ARCHIVE'");
 
         List<Object> params = new ArrayList<>();
         params.add(hoteId);
 
-        if (statut != null && !statut.isBlank()) {
+        // Filtre par statut
+        if (statut != null && !statut.trim().isEmpty() && !"TOUS".equals(statut)) {
             sql.append(" AND statut = ?");
             params.add(statut);
+        } else {
+            // Par défaut, exclure les archivés
+            sql.append(" AND l.statut != 'ARCHIVE'");
         }
 
-        if (typeId != null && !typeId.isBlank()) {
+        // Filtre par type
+        if (typeId != null && !typeId.trim().isEmpty()) {
+            try{
+            Long type = Long.parseLong(typeId);
             sql.append(" AND type_logement_id = ?");
-            params.add(Long.parseLong(typeId));
+            params.add(type);
+            } catch (NumberFormatException ignored) {}
         }
 
-        if (search != null && !search.isBlank()) {
+        // Recherche textuelle
+        if (search != null && !search.trim().isEmpty()) {
             sql.append(" AND (LOWER(titre) LIKE LOWER(?) OR LOWER(ville) LIKE LOWER(?))");
-            params.add("%" + search + "%");
-            params.add("%" + search + "%");
+            String searchParam = "%" + search.trim() + "%";
+            params.add(searchParam);
+            params.add(searchParam);
         }
 
         sql.append(" ORDER BY date_creation DESC");
@@ -326,13 +1007,16 @@ public class LogementDAO {
         try (Connection conn = DataSourceProvider.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
 
+            // Définir les paramètres
             for (int i = 0; i < params.size(); i++) {
                 ps.setObject(i + 1, params.get(i));
             }
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    logements.add(mapToLogement(rs));
+                    Logement logement = mapResultSetToLogement(rs);
+                    logement.setPhotos(findPhotosByLogementId(logement.getId()));
+                    logements.add(logement);
                 }
             }
         } catch (SQLException e) {
@@ -347,9 +1031,24 @@ public class LogementDAO {
     // Pour les filtres avancés non supportés par sp_rechercher_logements
     // ==========================================
 
+
     /**
      * Recherche avancée avec tous les filtres
      * Utilise la vue v_logements
+     * @param ville
+     * @param dateDebut
+     * @param dateFin
+     * @param nbVoyageurs
+     * @param prixMin
+     * @param prixMax
+     * @param typeIds
+     * @param nbChambresMin
+     * @param equipementIds
+     * @param noteMin
+     * @param tri
+     * @param page
+     * @param pageSize
+     * @return Liste de logements filtré
      */
     public List<Logement> search(String ville, LocalDate dateDebut, LocalDate dateFin,
                                  Integer nbVoyageurs, BigDecimal prixMin, BigDecimal prixMax,
@@ -454,67 +1153,94 @@ public class LogementDAO {
         return logements;
     }
 
-    // ==========================================
-    // MISE À JOUR (pas de procédure existante)
-    // ==========================================
 
     /**
-     * Mettre à jour un logement
+     * Rechercher des logements avec filtres
+     * @param ville
+     * @param typeId
+     * @param prixMax
+     * @param capaciteMin
+     * @return Liste de logements
+     * @throws SQLException
      */
-    public boolean update(Logement logement) {
-        String sql = """
-            UPDATE logement SET
-                type_logement_id = ?, titre = ?, description = ?,
-                nb_chambres = ?, nb_lits = ?, nb_salles_bain = ?, capacite_max = ?, superficie = ?,
-                prix_nuit = ?, frais_menage = ?,
-                heure_arrivee = ?, heure_depart = ?, reglement_interieur = ?, delai_annulation = ?,
-                date_modification = NOW()
-            WHERE id = ? AND hote_id = ?
-            """;
+    public List<Logement> searchLogements(String ville, String typeId,
+                                          String prixMax, String capaciteMin)
+            throws SQLException {
+
+        StringBuilder sql = new StringBuilder("""
+            SELECT DISTINCT l.*, a.*
+            FROM logement l
+            INNER JOIN adresse a ON l.adresse_id = a.id
+            WHERE l.statut = 'DISPONIBLE'
+        """);
+
+        List<Object> params = new ArrayList<>();
+
+        // Filtre par ville
+        if (ville != null && !ville.trim().isEmpty()) {
+            sql.append(" AND LOWER(a.ville) LIKE LOWER(?)");
+            params.add("%" + ville.trim() + "%");
+        }
+
+        // Filtre par type
+        if (typeId != null && !typeId.trim().isEmpty()) {
+            try {
+                Long type = Long.parseLong(typeId);
+                sql.append(" AND l.type_logement_id = ?");
+                params.add(type);
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // Filtre par prix maximum
+        if (prixMax != null && !prixMax.trim().isEmpty()) {
+            try {
+                BigDecimal prix = new BigDecimal(prixMax);
+                sql.append(" AND l.prix_nuit <= ?");
+                params.add(prix);
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // Filtre par capacité minimale
+        if (capaciteMin != null && !capaciteMin.trim().isEmpty()) {
+            try {
+                Integer capacite = Integer.parseInt(capaciteMin);
+                sql.append(" AND l.capacite_max >= ?");
+                params.add(capacite);
+            } catch (NumberFormatException ignored) {}
+        }
+
+        sql.append(" ORDER BY l.date_creation DESC");
+
+        List<Logement> logements = new ArrayList<>();
 
         try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
 
-            int i = 1;
-            ps.setObject(i++, logement.getTypeLogementId());
-            ps.setString(i++, logement.getTitre());
-            ps.setString(i++, logement.getDescription());
-            ps.setObject(i++, logement.getNbChambres());
-            ps.setObject(i++, logement.getNbLits());
-            ps.setObject(i++, logement.getNbSallesBain());
-            ps.setObject(i++, logement.getCapaciteMax());
-            ps.setBigDecimal(i++, logement.getSuperficie());
-            ps.setBigDecimal(i++, logement.getPrixNuit());
-            ps.setBigDecimal(i++, logement.getFraisMenage());
-            ps.setString(i++, logement.getHeureArrivee());
-            ps.setString(i++, logement.getHeureDepart());
-            ps.setString(i++, logement.getReglementInterieur());
-            ps.setObject(i++, logement.getDelaiAnnulation());
-            ps.setLong(i++, logement.getId());
-            ps.setLong(i++, logement.getHoteId());
-
-            int rows = ps.executeUpdate();
-
-            if (rows > 0 && logement.getEquipementIds() != null) {
-                deleteEquipements(logement.getId());
-                if (!logement.getEquipementIds().isEmpty()) {
-                    saveEquipements(logement.getId(), logement.getEquipementIds());
-                }
+            // Définir les paramètres
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
             }
 
-            return rows > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Erreur update: " + e.getMessage());
-            e.printStackTrace();
-            return false;
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Logement logement = mapResultSetToLogement(rs);
+                    logement.setPhotos(findPhotosByLogementId(logement.getId()));
+                    logements.add(logement);
+                }
+            }
         }
+        return logements;
     }
+
+
 
     /**
      * Changer le statut d'un logement
+     * @param logementId
+     * @param statut
+     * @return boolean
      */
-    public boolean updateStatut(Long logementId, String statut) {
+    public boolean updateStatut(Long logementId, String statut) throws SQLException {
         String sql = "UPDATE logement SET statut = ?, date_modification = NOW() WHERE id = ?";
 
         try (Connection conn = DataSourceProvider.getConnection();
@@ -524,46 +1250,27 @@ public class LogementDAO {
             ps.setLong(2, logementId);
 
             return ps.executeUpdate() > 0;
-
-        } catch (SQLException e) {
-            System.err.println("Erreur updateStatut: " + e.getMessage());
-            e.printStackTrace();
-            return false;
         }
     }
-
-    /**
-     * Archiver un logement (soft delete)
-     */
-    public boolean archiver(Long logementId) {
-        return updateStatut(logementId, "ARCHIVE");
-    }
-
-
-    /**
-     * Supprimer definitivement un logement
-     */
-    public boolean delete(Long logementId) {
-        String sql = "DELETE FROM logement WHERE id = ? AND statut = ARCHIVE";
-        try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setLong(1, logementId);
-            int rows = stmt.executeUpdate();
-            return rows > 0;
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
 
 
     // ==========================================
     // PHOTOS
     // ==========================================
 
-    public List<PhotoLogement> findPhotosByLogementId(Long logementId) {
+    /**
+     * Récupérer les photos d'un logement
+     * @param logementId
+     * @return Liste de photos pour le logement
+     * @throws SQLException
+     */
+    public List<PhotoLogement> findPhotosByLogementId(Long logementId) throws SQLException {
+
+        String sql = "SELECT * FROM photo_logement " +
+                "WHERE logement_id = ? " +
+                "ORDER BY est_principale DESC, ordre ASC";
+
         List<PhotoLogement> photos = new ArrayList<>();
-        String sql = "SELECT * FROM photo_logement WHERE logement_id = ? ORDER BY est_principale DESC, ordre ASC";
 
         try (Connection conn = DataSourceProvider.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -576,57 +1283,14 @@ public class LogementDAO {
                     photo.setId(rs.getLong("id"));
                     photo.setLogementId(rs.getLong("logement_id"));
                     photo.setUrl(rs.getString("url"));
-                    photo.setLegende(rs.getString("legende"));
+                    photo.setDescription(rs.getString("description"));
                     photo.setEstPrincipale(rs.getBoolean("est_principale"));
                     photo.setOrdre(rs.getInt("ordre"));
                     photos.add(photo);
                 }
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
         return photos;
-    }
-
-    public Long savePhoto(PhotoLogement photo) {
-        String sql = "INSERT INTO photo_logement (logement_id, url, legende, est_principale, ordre) VALUES (?, ?, ?, ?, ?)";
-
-        try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-
-            ps.setLong(1, photo.getLogementId());
-            ps.setString(2, photo.getUrl());
-            ps.setString(3, photo.getLegende());
-            ps.setBoolean(4, photo.isEstPrincipale());
-            ps.setInt(5, photo.getOrdre());
-
-            if (ps.executeUpdate() > 0) {
-                try (ResultSet keys = ps.getGeneratedKeys()) {
-                    if (keys.next()) {
-                        return keys.getLong(1);
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    public boolean deletePhoto(Long photoId, Long hoteId) {
-        String sql = "DELETE FROM photo_logement WHERE id = ? AND logement_id IN (SELECT id FROM logement WHERE hote_id = ?)";
-
-        try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setLong(1, photoId);
-            ps.setLong(2, hoteId);
-
-            return ps.executeUpdate() > 0;
-        } catch (SQLException e) {
-            e.printStackTrace();
-            return false;
-        }
     }
 
     // ==========================================
@@ -680,35 +1344,9 @@ public class LogementDAO {
         return equipements;
     }
 
-    private void saveEquipements(Long logementId, List<Long> equipementIds) {
-        String sql = "INSERT INTO logement_equipement (logement_id, equipement_id) VALUES (?, ?)";
 
-        try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            for (Long equipementId : equipementIds) {
-                ps.setLong(1, logementId);
-                ps.setLong(2, equipementId);
-                ps.addBatch();
-            }
-            ps.executeBatch();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
 
-    private void deleteEquipements(Long logementId) {
-        String sql = "DELETE FROM logement_equipement WHERE logement_id = ?";
-
-        try (Connection conn = DataSourceProvider.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            ps.setLong(1, logementId);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
 
     // ==========================================
     // TYPES DE LOGEMENT
@@ -864,4 +1502,104 @@ public class LogementDAO {
         return a;
     }
 
+
+
+
+
+    // ==========================================
+    // MÉTHODES UTILITAIRES
+    // ==========================================
+
+    /**
+     * Mapper un ResultSet vers un objet Logement
+     * @param rs
+     * @return logement
+     * @throws SQLException
+     */
+    private Logement mapResultSetToLogement(ResultSet rs) throws SQLException {
+        Logement logement = new Logement();
+
+        // Données du logement
+        logement.setId(rs.getLong("id"));
+        logement.setHoteId(rs.getLong("hote_id"));
+        logement.setTypeLogementId(rs.getLong("type_logement_id"));
+        logement.setTitre(rs.getString("titre"));
+        logement.setDescription(rs.getString("description"));
+        logement.setNbChambres(rs.getObject("nb_chambres", Integer.class));
+        logement.setNbLits(rs.getObject("nb_lits", Integer.class));
+        logement.setNbSallesBain(rs.getObject("nb_salles_bain", Integer.class));
+        logement.setCapaciteMax(rs.getObject("capacite_max", Integer.class));
+        logement.setSuperficie(rs.getBigDecimal("superficie"));
+        logement.setPrixNuit(rs.getBigDecimal("prix_nuit"));
+        logement.setFraisMenage(rs.getBigDecimal("frais_menage"));
+        logement.setHeureArrivee(rs.getString("heure_arrivee"));
+        logement.setHeureDepart(rs.getString("heure_depart"));
+        logement.setReglementInterieur(rs.getString("reglement_interieur"));
+        logement.setDelaiAnnulation(rs.getObject("delai_annulation", Integer.class));
+
+        // Statut
+        String statutStr = rs.getString("statut");
+        if (statutStr != null) {
+            logement.setStatut(StatutLogement.valueOf(statutStr));
+        }
+
+        // Dates
+        logement.setDateCreation(rs.getTimestamp("date_creation").toLocalDateTime());
+        if (rs.getTimestamp("date_modification") != null) {
+            logement.setDateModification(rs.getTimestamp("date_modification").toLocalDateTime());
+        }
+
+        // Adresse
+        AdresseBien adresse = new AdresseBien();
+        adresse.setId(rs.getLong("adresse_id"));
+        adresse.setAdresse(rs.getString("adresse"));
+        adresse.setCodePostal(rs.getString("code_postal"));
+        adresse.setVille(rs.getString("ville"));
+        adresse.setRegion(rs.getString("region"));
+        adresse.setPays(rs.getString("pays"));
+        adresse.setLatitude(rs.getBigDecimal("latitude"));
+        adresse.setLongitude(rs.getBigDecimal("longitude"));
+        logement.setAdresse(adresse);
+
+        return logement;
+    }
+
+    /**
+     * Trouver des logements similaires (même ville, même type)
+     */
+    public List<Logement> findSimilaires(Long logementId, int limit) throws SQLException {
+        String sql = """
+            SELECT l2.*, a2.*
+            FROM logement l1
+            INNER JOIN adresse a1 ON l1.adresse_id = a1.id
+            INNER JOIN logement l2 ON l1.type_logement_id = l2.type_logement_id
+            INNER JOIN adresse a2 ON l2.adresse_id = a2.id
+            WHERE l1.id = ?
+            AND l2.id != ?
+            AND l2.statut = 'DISPONIBLE'
+            AND a1.ville = a2.ville
+            ORDER BY ABS(l1.prix_nuit - l2.prix_nuit)
+            LIMIT ?
+        """;
+
+        List<Logement> logements = new ArrayList<>();
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, logementId);
+            ps.setLong(2, logementId);
+            ps.setInt(3, limit);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Logement logement = mapResultSetToLogement(rs);
+                    logement.setPhotos(findPhotosByLogementId(logement.getId()));
+                    logements.add(logement);
+                }
+            }
+        }
+
+        return logements;
+    }
 }

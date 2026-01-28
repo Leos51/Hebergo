@@ -23,12 +23,12 @@
     </div>
 
     <!-- Message flash -->
-    <c:if test="${not empty flash}">
-        <div class="alert alert-${flash.type} alert-dismissible fade show" role="alert">
-                ${flash.message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    </c:if>
+<%--    <c:if test="${not empty sessionScope.flash}">--%>
+<%--        <div class="alert alert-${sessionScope.flash}.type} alert-dismissible fade show" role="alert">--%>
+<%--                ${sessionScope.flash}--%>
+<%--            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>--%>
+<%--        </div>--%>
+<%--    </c:if>--%>
 
     <!-- Filtres -->
     <div class="card border-0 shadow-sm mb-4">
@@ -48,7 +48,7 @@
                     <select name="type" class="form-select">
                         <option value="">Tous les types</option>
                         <c:forEach var="type" items="${types}">
-                            <option value="${type.id}" ${param.type == type.id.toString() ? 'selected' : ''}>${type.nom}</option>
+                            <option value="${type.id}" ${param.type == type.id.toString() ? 'selected' : ''}>${type.libelle}</option>
                         </c:forEach>
                     </select>
                 </div>

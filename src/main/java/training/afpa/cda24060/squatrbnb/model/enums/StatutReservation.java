@@ -1,42 +1,74 @@
 package training.afpa.cda24060.squatrbnb.model.enums;
 
+/**
+ * Énumération des statuts possibles d'une réservation
+ */
 public enum StatutReservation {
-    EN_ATTENTE("En attente", ""),
-    CONFIRME("Confirmé", ""),
-    EN_COURS("En cours", ""),
-    TERMINE("Terminée", ""),
-    ANNULEE("Annulée", ""),
-    REFUSEE("Refusée", ""),
-    LITIGE("Litige", "");
+
+    /**
+     * Réservation en attente de confirmation par l'hôte
+     */
+    EN_ATTENTE("En attente", "warning"),
+
+    /**
+     * Réservation confirmée par l'hôte
+     */
+    CONFIRMEE("Confirmée", "success"),
+
+    /**
+     * Réservation en cours (dates actuelles)
+     */
+    EN_COURS("En cours", "info"),
+
+    /**
+     * Réservation terminée
+     */
+    TERMINEE("Terminée", "secondary"),
+
+    /**
+     * Réservation annulée
+     */
+    ANNULEE("Annulée", "danger"),
+
+    /**
+     * Réservation refusée par l'hôte
+     */
+    REFUSEE("Refusée", "danger");
 
     private final String libelle;
-    private final String cssClass;
+    private final String bootstrapClass;
 
-
-    StatutReservation(String libelle, String cssClass) {
+    StatutReservation(String libelle, String bootstrapClass) {
         this.libelle = libelle;
-        this.cssClass = cssClass;
+        this.bootstrapClass = bootstrapClass;
     }
 
     public String getLibelle() {
         return libelle;
     }
 
-    public String getCssClass() {
-        return cssClass;
+    public String getBootstrapClass() {
+        return bootstrapClass;
     }
+
     /**
-     * Convertit une chaîne en StatutReservation (insensible à la casse)
+     * Obtenir la classe CSS Bootstrap pour le badge
      */
-    public static StatutReservation fromString(String value) {
-        if (value == null || value.isBlank()) {
-            return EN_ATTENTE;
-        }
-        try {
-            return StatutReservation.valueOf(value.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return EN_ATTENTE;
-        }
+    public String getBadgeClass() {
+        return "badge bg-" + bootstrapClass;
+    }
+
+    /**
+     * Vérifier si le statut est actif (pas terminé ni annulé)
+     */
+    public boolean isActif() {
+        return this == EN_ATTENTE || this == CONFIRMEE || this == EN_COURS;
+    }
+
+    /**
+     * Vérifier si le statut est final (terminé ou annulé)
+     */
+    public boolean isFinal() {
+        return this == TERMINEE || this == ANNULEE || this == REFUSEE;
     }
 }
-

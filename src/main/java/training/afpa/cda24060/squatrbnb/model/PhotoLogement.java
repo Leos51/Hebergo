@@ -3,20 +3,24 @@ package training.afpa.cda24060.squatrbnb.model;
 import java.time.LocalDateTime;
 
 /**
- * Photo d'un logement
+ * Modèle représentant une photo de logement
  */
 public class PhotoLogement {
 
     private Long id;
     private Long logementId;
     private String url;
-    private String legende;
+    private String description;
     private boolean estPrincipale;
     private int ordre;
     private LocalDateTime dateAjout;
 
-    // Constructeurs
-    public PhotoLogement() {}
+    // ==========================================
+    // CONSTRUCTEURS
+    // ==========================================
+
+    public PhotoLogement() {
+    }
 
     public PhotoLogement(Long logementId, String url) {
         this.logementId = logementId;
@@ -25,14 +29,17 @@ public class PhotoLogement {
         this.ordre = 0;
     }
 
-    public PhotoLogement(Long logementId, String url, boolean estPrincipale) {
+    public PhotoLogement(Long logementId, String url, boolean estPrincipale, int ordre) {
         this.logementId = logementId;
         this.url = url;
         this.estPrincipale = estPrincipale;
-        this.ordre = 0;
+        this.ordre = ordre;
     }
 
-    // Getters et Setters
+    // ==========================================
+    // GETTERS & SETTERS
+    // ==========================================
+
     public Long getId() {
         return id;
     }
@@ -57,13 +64,15 @@ public class PhotoLogement {
         this.url = url;
     }
 
-    public String getLegende() {
-        return legende;
+    public String getDescription() {
+        return description;
     }
 
-    public void setLegende(String legende) {
-        this.legende = legende;
+    public void setDescription(String description) {
+        this.description = description;
     }
+
+
 
     public boolean isEstPrincipale() {
         return estPrincipale;
@@ -89,8 +98,29 @@ public class PhotoLogement {
         this.dateAjout = dateAjout;
     }
 
+    // ==========================================
+    // MÉTHODES UTILITAIRES
+    // ==========================================
+
+    /**
+     * Obtenir le nom du fichier depuis l'URL
+     */
+    public String getNomFichier() {
+        if (url == null) return null;
+        int lastSlash = url.lastIndexOf('/');
+        return lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+    }
+
     @Override
     public String toString() {
-        return "PhotoLogement{id=" + id + ", url='" + url + "', principale=" + estPrincipale + "}";
+        return "PhotoLogement{" +
+                "id=" + id +
+                ", logementId=" + logementId +
+                ", url='" + url + '\'' +
+                ", estPrincipale=" + estPrincipale +
+                ", ordre=" + ordre +
+                '}';
     }
+
+
 }

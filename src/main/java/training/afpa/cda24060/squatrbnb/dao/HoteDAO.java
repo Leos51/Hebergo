@@ -9,13 +9,15 @@ import training.afpa.cda24060.squatrbnb.utilitaires.DataSourceProvider;
 
 import java.math.BigDecimal;
 import java.sql.*;
+import java.time.LocalDate;
 import java.util.*;
 
 /**
- * DAO pour la gestion des hôtes
- * Utilise la vue v_hotes
+ * DAO pour les statistiques et opérations spécifiques aux hôtes
  */
 public class HoteDAO {
+
+
 
     // ==========================================
     // MÉTHODES DE RECHERCHE
@@ -411,6 +413,98 @@ public class HoteDAO {
 
         System.out.println("Stats simples: " + stats);
         return stats;
+    }
+
+    /**
+     * Vérifier si un utilisateur est hôte
+     * @param utilisateurId
+     * @return boolean
+     * @throws SQLException
+     */
+    public boolean isHote(Long utilisateurId) throws SQLException {
+        String sql = """
+            SELECT COUNT(*) FROM utilisateur_role 
+            WHERE utilisateur_id = ? AND role = 'HOTE'
+        """;
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, utilisateurId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt(1) > 0;
+            }
+        }
+    }
+
+    /**
+     * Obtenir le nombre total de logements d'un hôte
+     * @param hoteId
+     * @return Nombre logements
+     * @throws SQLException
+     */
+    public int countLogements(Long hoteId) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM logement WHERE hote_id = ? AND statut != 'ARCHIVE'";
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, hoteId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /**
+     * Obtenir les logements les plus performants d'un Hote
+     * @param hoteId
+     * @param limit
+     * @return Liste de logmogements
+     * @throws SQLException
+     */
+    public Map<Long, Map<String, Object>> getTopLogements(Long hoteId, int limit) throws SQLException {
+        Map<Long, Map<String, Object>> topLogements = new HashMap<>();
+
+        String sql = """
+            SELECT 
+                l.id,
+                l.titre,
+                COUNT(r.id) as nb_reservations,
+                COALESCE(SUM(r.montant_total), 0) as revenu_total,
+                COALESCE(AVG(av.note), 0) as note_moyenne
+            FROM logement l
+            LEFT JOIN reservation r ON l.id = r.logement_id 
+                AND r.statut IN ('CONFIRMEE', 'EN_COURS', 'TERMINEE')
+            LEFT JOIN avis av ON r.id = av.reservation_id
+            WHERE l.hote_id = ? AND l.statut != 'ARCHIVE'
+            GROUP BY l.id, l.titre
+            ORDER BY revenu_total DESC
+            LIMIT ?
+        """;
+
+        try (Connection conn = DataSourceProvider.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, hoteId);
+            ps.setInt(2, limit);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Long logementId = rs.getLong("id");
+                    Map<String, Object> stats = new HashMap<>();
+                    stats.put("titre", rs.getString("titre"));
+                    stats.put("nbReservations", rs.getInt("nb_reservations"));
+                    stats.put("revenuTotal", rs.getBigDecimal("revenu_total"));
+                    stats.put("noteMoyenne", rs.getBigDecimal("note_moyenne"));
+                    topLogements.put(logementId, stats);
+                }
+            }
+        }
+
+        return topLogements;
     }
 
     // ==========================================
